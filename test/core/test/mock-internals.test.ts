@@ -1,8 +1,8 @@
 import childProcess, { exec } from 'node:child_process'
 import timers from 'node:timers'
-import { type SpyInstance, afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { execDefault, execHelloWorld, execImportAll } from '../src/exec'
+import { afterEach, beforeEach, describe, expect, type MockInstance, test, vi } from 'vitest'
 import { dynamicImport } from '../src/dynamic-import'
+import { execDefault, execHelloWorld, execImportAll } from '../src/exec'
 
 vi.mock('child_process')
 vi.mock('timers') // node built in inside __mocks__
@@ -31,7 +31,7 @@ test('mocked dynamically imported packages', async () => {
 
 describe('Math.random', () => {
   describe('mock is restored', () => {
-    let spy: SpyInstance
+    let spy: MockInstance
 
     beforeEach(() => {
       spy = vi.spyOn(Math, 'random').mockReturnValue(0.1)

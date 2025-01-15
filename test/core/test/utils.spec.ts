@@ -1,9 +1,9 @@
-import { beforeAll, describe, expect, test } from 'vitest'
-import { assertTypes, deepClone, objectAttr, toArray } from '@vitest/utils'
-import { deepMerge, resetModules } from '../../../packages/vitest/src/utils'
-import { deepMergeSnapshot } from '../../../packages/snapshot/src/port/utils'
 import type { EncodedSourceMap } from '../../../packages/vite-node/src/types'
-import { ModuleCacheMap } from '../../../packages/vite-node/dist/client'
+import { assertTypes, deepClone, deepMerge, isNegativeNaN, objDisplay, objectAttr, toArray } from '@vitest/utils'
+import { beforeAll, describe, expect, test } from 'vitest'
+import { deepMergeSnapshot } from '../../../packages/snapshot/src/port/utils'
+import { ModuleCacheMap } from '../../../packages/vite-node/src/client'
+import { resetModules } from '../../../packages/vitest/src/runtime/utils'
 
 describe('assertTypes', () => {
   test('the type of value should be number', () => {
@@ -227,7 +227,7 @@ describe('resetModules doesn\'t resets only user modules', () => {
     resetModules(moduleCache)
   })
 
-  test.each(modules)('Cashe for %s is reseted (%s)', (path, reset) => {
+  test.each(modules)('Cache for %s is reset (%s)', (path, reset) => {
     const cached = moduleCache.get(path)
 
     if (reset) {
@@ -269,5 +269,35 @@ describe('objectAttr', () => {
     ${{ func }}                   | ${'func'}       | ${func}
   `('objectAttr($value, $path) -> $expected', ({ value, path, expected }) => {
     expect(objectAttr(value, path)).toEqual(expected)
+  })
+})
+
+describe('objDisplay', () => {
+  test.each`
+  value | expected
+  ${'a'.repeat(100)} | ${`'${'a'.repeat(37)}…'`}
+  ${'🐱'.repeat(100)} | ${`'${'🐱'.repeat(18)}…'`}
+  ${`a${'🐱'.repeat(100)}…`} | ${`'a${'🐱'.repeat(18)}…'`}
+  `('Do not truncate strings anywhere but produce valid unicode strings for $value', ({ value, expected }) => {
+    // encodeURI can be used to detect invalid strings including invalid code-points
+    // note: our code should not split surrogate pairs, but may split graphemes
+    expect(() => encodeURI(objDisplay(value))).not.toThrow()
+    expect(objDisplay(value)).toEqual(expected)
+  })
+})
+
+describe('isNegativeNaN', () => {
+  test.each`
+  value | expected
+  ${Number.NaN} | ${false}
+  ${-Number.NaN} | ${true}
+  ${0} | ${false}
+  ${-0} | ${false}
+  ${1} | ${false}
+  ${-1} | ${false}
+  ${Number.POSITIVE_INFINITY} | ${false}
+  ${Number.NEGATIVE_INFINITY} | ${false}
+  `('isNegativeNaN($value) -> $expected', ({ value, expected }) => {
+    expect(isNegativeNaN(value)).toBe(expected)
   })
 })

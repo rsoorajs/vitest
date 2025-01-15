@@ -1,52 +1,78 @@
 <script setup lang="ts">
-import { hasFailedSnapshot } from '@vitest/ws-client'
+import type { File } from 'vitest'
 import { Tooltip as VueTooltip } from 'floating-vue'
+import { isDark, toggleDark } from '~/composables'
+import { client, isReport, runAll, runFiles } from '~/composables/client'
+import { explorerTree } from '~/composables/explorer'
+import { initialized, shouldShowExpandAll } from '~/composables/explorer/state'
 import {
   coverageConfigured,
   coverageEnabled,
   coverageVisible,
-  currentModule,
   dashboardVisible,
   disableCoverage,
   showCoverage,
   showDashboard,
-} from '../composables/navigation'
-import { client, findById } from '../composables/client'
-import type { File, Task } from '#types'
-import { isDark, toggleDark } from '~/composables'
-import { files, isReport, runAll } from '~/composables/client'
-import { activeFileId } from '~/composables/params'
+  showReport,
+} from '~/composables/navigation'
 
-const failedSnapshot = computed(() => files.value && hasFailedSnapshot(files.value))
 function updateSnapshot() {
   return client.rpc.updateSnapshot()
 }
 
-function onItemClick(task: Task) {
-  activeFileId.value = task.id
-  currentModule.value = findById(task.id)
-  showDashboard(false)
-}
 const toggleMode = computed(() => isDark.value ? 'light' : 'dark')
+
 async function onRunAll(files?: File[]) {
   if (coverageEnabled.value) {
     disableCoverage.value = true
     await nextTick()
-    if (coverageEnabled.value) {
+    if (coverageVisible.value) {
       showDashboard(true)
       await nextTick()
     }
   }
-  await runAll(files)
+  if (files?.length) {
+    await runFiles(files)
+  }
+  else {
+    await runAll()
+  }
+}
+
+function collapseTests() {
+  explorerTree.collapseAllNodes()
+}
+
+function expandTests() {
+  explorerTree.expandAllNodes()
 }
 </script>
 
 <template>
-  <TasksList border="r base" :tasks="files" :on-item-click="onItemClick" :group-by-type="true" @run="onRunAll">
-    <template #header="{ filteredTests }">
+  <!-- TODO: have test tree so the folders are also nested: test -> filename -> suite -> test -->
+  <Explorer border="r base" :on-item-click="showReport" :nested="true" @run="onRunAll">
+    <template #header="{ filteredFiles }">
       <img w-6 h-6 src="/favicon.svg" alt="Vitest logo">
       <span font-light text-sm flex-1>Vitest</span>
       <div class="flex text-lg">
+        <IconButton
+          v-show="!shouldShowExpandAll"
+          v-tooltip.bottom="'Collapse tests'"
+          title="Collapse tests"
+          :disabled="!initialized"
+          data-testid="collapse-all"
+          icon="i-carbon:collapse-all"
+          @click="collapseTests()"
+        />
+        <IconButton
+          v-show="shouldShowExpandAll"
+          v-tooltip.bottom="'Expand tests'"
+          :disabled="!initialized"
+          title="Expand tests"
+          data-testid="expand-all"
+          icon="i-carbon:expand-all"
+          @click="expandTests()"
+        />
         <IconButton
           v-show="(coverageConfigured && !coverageEnabled) || !dashboardVisible"
           v-tooltip.bottom="'Dashboard'"
@@ -84,17 +110,18 @@ async function onRunAll(files?: File[]) {
           @click="showCoverage()"
         />
         <IconButton
-          v-if="(failedSnapshot && !isReport)"
+          v-if="(explorerTree.summary.failedSnapshot && !isReport)"
           v-tooltip.bottom="'Update all failed snapshot(s)'"
           icon="i-carbon:result-old"
-          @click="updateSnapshot()"
+          :disabled="!explorerTree.summary.failedSnapshotEnabled"
+          @click="explorerTree.summary.failedSnapshotEnabled && updateSnapshot()"
         />
         <IconButton
           v-if="!isReport"
-          v-tooltip.bottom="filteredTests ? (filteredTests.length === 0 ? 'No test to run (clear filter)' : 'Rerun filtered') : 'Rerun all'"
-          :disabled="filteredTests?.length === 0"
+          v-tooltip.bottom="filteredFiles ? (filteredFiles.length === 0 ? 'No test to run (clear filter)' : 'Rerun filtered') : 'Rerun all'"
+          :disabled="filteredFiles?.length === 0"
           icon="i-carbon:play"
-          @click="runAll(filteredTests)"
+          @click="onRunAll(filteredFiles)"
         />
         <IconButton
           v-tooltip.bottom="`Toggle to ${toggleMode} mode`"
@@ -103,5 +130,5 @@ async function onRunAll(files?: File[]) {
         />
       </div>
     </template>
-  </TasksList>
+  </Explorer>
 </template>

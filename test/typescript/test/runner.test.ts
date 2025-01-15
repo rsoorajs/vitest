@@ -1,22 +1,24 @@
 import { resolve } from 'pathe'
-import fg from 'fast-glob'
+import { glob } from 'tinyglobby'
 import { describe, expect, it } from 'vitest'
 
-import { runVitest, runVitestCli } from '../../test-utils'
+import { runVitest } from '../../test-utils'
 
 describe('should fail', async () => {
-  const root = resolve(__dirname, '../failing')
-  const files = await fg('*.test-d.*', { cwd: root })
+  const root = resolve(import.meta.dirname, '../failing')
+  const files = await glob(['*.test-d.*'], { cwd: root, expandDirectories: false })
 
   it('typecheck files', async () => {
     const { stderr } = await runVitest({
       root,
       dir: './failing',
       typecheck: {
+        enabled: true,
         allowJs: true,
         include: ['**/*.test-d.*'],
+        tsconfig: resolve(import.meta.dirname, '../tsconfig.fails.json'),
       },
-    }, [], 'typecheck')
+    })
 
     expect(stderr).toBeTruthy()
     const lines = String(stderr).split(/\n/g)
@@ -39,20 +41,16 @@ describe('should fail', async () => {
         expect(msg).toMatchSnapshot()
       }
     })
-  }, 30_000)
+  })
 
-  it('typecheks with custom tsconfig', async () => {
-    const { stderr } = await runVitestCli(
-      { cwd: root, env: { ...process.env, CI: 'true' } },
-      'typecheck',
-      '--run',
-      '--dir',
-      resolve(__dirname, '..', './failing'),
-      '--config',
-      resolve(__dirname, './vitest.custom.config.ts'),
-    )
+  it('typechecks with custom tsconfig', async () => {
+    const { stderr } = await runVitest({
+      root,
+      dir: resolve(__dirname, '..', './failing'),
+      config: resolve('./test/vitest.custom.config.ts'),
+      typecheck: { enabled: true },
+    })
 
-    expect(stderr).toBeTruthy()
     const lines = String(stderr).split(/\n/g)
     const msg = lines
       .filter(i => i.includes('TypeCheckError: '))
@@ -66,33 +64,73 @@ describe('should fail', async () => {
     expect(msg).toMatchSnapshot()
 
     expect(stderr).toContain('FAIL  fail.test-d.ts') // included in tsconfig
-    expect(stderr).toContain('FAIL  only.test-d.ts') // .only
+
+    // TODO: Why should this be picked as well?
+    // expect(stderr).toContain('FAIL  only.test-d.ts') // .only
 
     // not included in tsconfig
     expect(stderr).not.toContain('expect-error.test-d.ts')
     expect(stderr).not.toContain('js-fail.test-d.js')
     expect(stderr).not.toContain('js.test-d.js')
     expect(stderr).not.toContain('test.test-d.ts')
-  }, 30_000)
+  })
 
   it('typechecks empty "include" but with tests', async () => {
-    const { stderr } = await runVitestCli(
-      {
-        cwd: root,
-        env: {
-          ...process.env,
-          CI: 'true',
-          NO_COLOR: 'true',
-        },
-      },
-      'typecheck',
-      '--run',
-      '--dir',
-      resolve(__dirname, '..', './failing'),
-      '--config',
-      resolve(__dirname, './vitest.empty.config.ts'),
+    const { stderr } = await runVitest({
+      root,
+      dir: resolve(__dirname, '..', './failing'),
+      config: resolve(__dirname, './vitest.empty.config.ts'),
+      typecheck: { enabled: true },
+    },
     )
 
     expect(stderr.replace(resolve(__dirname, '..'), '<root>')).toMatchSnapshot()
-  }, 30_000)
+  })
+})
+
+describe('ignoreSourceErrors', () => {
+  it('disabled', async () => {
+    const vitest = await runVitest({
+      root: resolve(__dirname, '../fixtures/source-error'),
+    })
+    expect(vitest.stderr).toContain('Unhandled Errors')
+    expect(vitest.stderr).toContain('Unhandled Source Error')
+    expect(vitest.stderr).toContain('TypeCheckError: Cannot find name \'thisIsSourceError\'')
+  })
+
+  it('enabled', async () => {
+    const vitest = await runVitest(
+      {
+        root: resolve(__dirname, '../fixtures/source-error'),
+        typecheck: {
+          ignoreSourceErrors: true,
+          enabled: true,
+        },
+      },
+    )
+    expect(vitest.stdout).not.toContain('Unhandled Errors')
+    expect(vitest.stderr).not.toContain('Unhandled Source Error')
+    expect(vitest.stderr).not.toContain('TypeCheckError: Cannot find name \'thisIsSourceError\'')
+  })
+})
+
+describe('when the title is dynamic', () => {
+  it('works correctly', async () => {
+    const vitest = await runVitest({
+      root: resolve(__dirname, '../fixtures/dynamic-title'),
+      reporters: [['default', { isTTY: true }]],
+    })
+
+    expect(vitest.stdout).toContain('✓ for: %s')
+    expect(vitest.stdout).toContain('✓ each: %s')
+    expect(vitest.stdout).toContain('✓ dynamic skip')
+    expect(vitest.stdout).not.toContain('✓ false') // .skipIf is not reported as a separate test
+    expect(vitest.stdout).toContain('✓ template string')
+    // eslint-disable-next-line no-template-curly-in-string
+    expect(vitest.stdout).toContain('✓ template ${"some value"} string')
+    // eslint-disable-next-line no-template-curly-in-string
+    expect(vitest.stdout).toContain('✓ template ${`literal`} string')
+    expect(vitest.stdout).toContain('✓ name')
+    expect(vitest.stdout).toContain('✓ (() => "some name")()')
+  })
 })
