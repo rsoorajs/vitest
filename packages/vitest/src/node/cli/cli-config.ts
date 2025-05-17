@@ -7,6 +7,7 @@ import type {
 } from '../types/pool-options'
 import type { CliOptions } from './cli-api'
 import { defaultBrowserPort, defaultPort } from '../../constants'
+import { ReportersMap } from '../reporters'
 
 type NestedOption<T, V = Extract<T, Record<string, any>>> = V extends
   | never
@@ -160,7 +161,7 @@ export const cliOptionsConfig: VitestCLIOptions = {
   },
   reporters: {
     alias: 'reporter',
-    description: 'Specify reporters',
+    description: `Specify reporters (${Object.keys(ReportersMap).join(', ')})`,
     argument: '<name>',
     subcommands: null, // don't support custom objects
     array: true,
@@ -332,7 +333,7 @@ export const cliOptionsConfig: VitestCLIOptions = {
     argument: '<name>',
   },
   workspace: {
-    description: 'Path to a workspace configuration file',
+    description: '[deprecated] Path to a workspace configuration file',
     argument: '<path>',
     normalize: true,
   },
@@ -548,6 +549,7 @@ export const cliOptionsConfig: VitestCLIOptions = {
           'Changes the order in which setup files are executed. Accepted values are: "list" and "parallel". If set to "list", will run setup files in the order they are defined. If set to "parallel", will run setup files in parallel (default: `"parallel"`)',
         argument: '<order>',
       },
+      groupOrder: null,
     },
   },
   inspect: {
@@ -863,6 +865,8 @@ export const cliOptionsConfig: VitestCLIOptions = {
   json: null,
   provide: null,
   filesOnly: null,
+  projects: null,
+  watchTriggerPatterns: null,
 }
 
 export const benchCliOptionsConfig: Pick<

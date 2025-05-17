@@ -1,7 +1,7 @@
 {
   "name": "@vitest/monorepo",
   "type": "module",
-  "version": "3.1.2",
+  "version": "3.2.0-beta.1",
   "private": true,
   "packageManager": "pnpm@10.9.0",
   "description": "Next generation testing framework powered by Vite",
@@ -51,7 +51,7 @@
     "bumpp": "^10.1.0",
     "changelogithub": "^13.13.0",
     "esbuild": "^0.25.3",
-    "eslint": "^9.25.1",
+    "eslint": "^9.26.0",
     "magic-string": "^0.30.17",
     "pathe": "^2.0.3",
     "rimraf": "^6.0.1",
@@ -83,7 +83,6 @@
       ]
     },
     "patchedDependencies": {
-      "@types/chai@5.0.1": "patches/@types__chai@5.0.1.patch",
       "@sinonjs/fake-timers@14.0.0": "patches/@sinonjs__fake-timers@14.0.0.patch",
       "cac@6.7.14": "patches/cac@6.7.14.patch",
       "@types/sinonjs__fake-timers@8.1.5": "patches/@types__sinonjs__fake-timers@8.1.5.patch",
