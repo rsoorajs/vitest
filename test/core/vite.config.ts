@@ -1,3 +1,5 @@
+import type { LabelColor } from 'vitest'
+import type { Pool } from 'vitest/node'
 import { basename, dirname, join, resolve } from 'pathe'
 import { defaultExclude, defineConfig } from 'vitest/config'
 
@@ -63,11 +65,18 @@ export default defineConfig({
     setupFiles: [
       './test/setup.ts',
     ],
-    reporters: [['default', { summary: true }], 'hanging-process'],
+    includeTaskLocation: true,
+    reporters: process.env.GITHUB_ACTIONS
+      ? ['default', 'github-actions']
+      : [['default', { summary: true }], 'hanging-process'],
     testNamePattern: '^((?!does not include test that).)*$',
     coverage: {
       provider: 'istanbul',
       reporter: ['text', 'html'],
+    },
+    typecheck: {
+      enabled: true,
+      tsconfig: './tsconfig.typecheck.json',
     },
     environmentMatchGlobs: [
       ['**/*.dom.test.ts', 'happy-dom'],
@@ -134,6 +143,24 @@ export default defineConfig({
       if (log.includes('Importing WebAssembly ')) {
         return false
       }
+      if (log.includes('run [...filters]')) {
+        return false
+      }
     },
+    projects: [
+      project('threads', 'red'),
+      project('forks', 'green'),
+      project('vmThreads', 'blue'),
+    ],
   },
 })
+
+function project(pool: Pool, color: LabelColor) {
+  return {
+    extends: './vite.config.ts',
+    test: {
+      name: { label: pool, color },
+      pool,
+    },
+  }
+}

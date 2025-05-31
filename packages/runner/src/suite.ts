@@ -27,6 +27,7 @@ import {
 } from '@vitest/utils'
 import { parseSingleStack } from '@vitest/utils/source-map'
 import {
+  abortIfTimeout,
   collectorContext,
   collectTask,
   createTestContext,
@@ -325,6 +326,7 @@ function createSuiteCollector(
             ? 'todo'
             : 'run',
       meta: options.meta ?? Object.create(null),
+      annotations: [],
     }
     const handler = options.handler
     if (
@@ -353,10 +355,11 @@ function createSuiteCollector(
       setFn(
         task,
         withTimeout(
-          withAwaitAsyncAssertions(withFixtures(handler, context), task),
+          withAwaitAsyncAssertions(withFixtures(runner, handler, context), task),
           timeout,
           false,
           stackTraceError,
+          (_, error) => abortIfTimeout([context], error),
         ),
       )
     }
@@ -421,7 +424,7 @@ function createSuiteCollector(
       const parsed = mergeContextFixtures(
         fixtures,
         { fixtures: collectorFixtures },
-        (key: string) => getRunner().injectValue?.(key),
+        runner,
       )
       if (parsed.fixtures) {
         collectorFixtures = parsed.fixtures
@@ -764,7 +767,7 @@ export function createTaskCollector(
     const _context = mergeContextFixtures(
       fixtures,
       context || {},
-      (key: string) => getRunner().injectValue?.(key),
+      runner,
     )
 
     return createTest(function fn(
