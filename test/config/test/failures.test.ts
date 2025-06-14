@@ -1,8 +1,8 @@
 import type { UserConfig as ViteUserConfig } from 'vite'
 import type { UserConfig } from 'vitest/node'
 import type { VitestRunnerCLIOptions } from '../../test-utils'
+import { cpus } from 'node:os'
 import { normalize, resolve } from 'pathe'
-
 import { beforeEach, expect, test } from 'vitest'
 import { version } from 'vitest/package.json'
 import * as testUtils from '../../test-utils'
@@ -12,7 +12,7 @@ const names = ['edge', 'chromium', 'webkit', 'chrome', 'firefox', 'safari'] as c
 const browsers = providers.map(provider => names.map(name => ({ name, provider }))).flat()
 
 function runVitest(config: NonNullable<UserConfig> & { shard?: any }, viteOverrides: ViteUserConfig = {}, runnerOptions?: VitestRunnerCLIOptions) {
-  return testUtils.runVitest({ root: './fixtures/test', ...config }, [], undefined, viteOverrides, runnerOptions)
+  return testUtils.runVitest({ root: './fixtures/test', include: ['example.test.ts'], ...config }, [], undefined, viteOverrides, runnerOptions)
 }
 
 function runVitestCli(...cliArgs: string[]) {
@@ -90,13 +90,15 @@ test('inspect and --inspect-brk cannot be used when not playwright + chromium', 
         continue
       }
 
-      const { stderr } = await runVitest({
-        [option]: true,
-        fileParallelism: false,
-        browser: {
-          enabled: true,
-          provider,
-          name,
+      const { stderr } = await runVitest({}, {
+        test: {
+          [option]: true,
+          fileParallelism: false,
+          browser: {
+            enabled: true,
+            provider,
+            name,
+          },
         },
       })
 
@@ -134,14 +136,16 @@ test('v8 coverage provider throws when not playwright + chromium (browser.name)'
       continue
     }
 
-    const { stderr } = await runVitest({
-      coverage: {
-        enabled: true,
-      },
-      browser: {
-        enabled: true,
-        provider,
-        name,
+    const { stderr } = await runVitest({}, {
+      test: {
+        coverage: {
+          enabled: true,
+        },
+        browser: {
+          enabled: true,
+          provider,
+          name,
+        },
       },
     })
 
@@ -183,14 +187,16 @@ test('v8 coverage provider throws when not playwright + chromium (browser.instan
       continue
     }
 
-    const { stderr } = await runVitest({
-      coverage: {
-        enabled: true,
-      },
-      browser: {
-        enabled: true,
-        provider,
-        instances: [{ browser: name }],
+    const { stderr } = await runVitest({}, {
+      test: {
+        coverage: {
+          enabled: true,
+        },
+        browser: {
+          enabled: true,
+          provider,
+          instances: [{ browser: name }],
+        },
       },
     })
 
@@ -231,19 +237,21 @@ Use either:
 })
 
 test('v8 coverage provider throws when using chromium and other non-chromium browser', async () => {
-  const { stderr } = await runVitest({
-    coverage: {
-      enabled: true,
-    },
-    browser: {
-      enabled: true,
-      headless: true,
-      provider: 'playwright',
-      instances: [
-        { browser: 'chromium' },
-        { browser: 'firefox' },
-        { browser: 'webkit' },
-      ],
+  const { stderr } = await runVitest({}, {
+    test: {
+      coverage: {
+        enabled: true,
+      },
+      browser: {
+        enabled: true,
+        headless: true,
+        provider: 'playwright',
+        instances: [
+          { browser: 'chromium' },
+          { browser: 'firefox' },
+          { browser: 'webkit' },
+        ],
+      },
     },
   })
 
@@ -476,54 +484,60 @@ test('browser.instances throws an error if no custom name is provided', async ()
       },
     },
   })
-  expect(stderr).toMatch('Cannot define a nested project for a firefox browser. The project name "firefox" was already defined. If you have multiple instances for the same browser, make sure to define a custom "name". All projects in a workspace should have unique names. Make sure your configuration is correct.')
+  expect(stderr).toMatch('Cannot define a nested project for a firefox browser. The project name "firefox" was already defined. If you have multiple instances for the same browser, make sure to define a custom "name". All projects should have unique names. Make sure your configuration is correct.')
 })
 
 test('browser.instances throws an error if no custom name is provided, but the config name is inherited', async () => {
-  const { stderr } = await runVitest({
-    name: 'custom',
-    browser: {
-      enabled: true,
-      provider: 'playwright',
-      instances: [
-        { browser: 'firefox' },
-        { browser: 'firefox' },
-      ],
+  const { stderr } = await runVitest({}, {
+    test: {
+      name: 'custom',
+      browser: {
+        enabled: true,
+        provider: 'playwright',
+        instances: [
+          { browser: 'firefox' },
+          { browser: 'firefox' },
+        ],
+      },
     },
   })
-  expect(stderr).toMatch('Cannot define a nested project for a firefox browser. The project name "custom (firefox)" was already defined. If you have multiple instances for the same browser, make sure to define a custom "name". All projects in a workspace should have unique names. Make sure your configuration is correct.')
+  expect(stderr).toMatch('Cannot define a nested project for a firefox browser. The project name "custom (firefox)" was already defined. If you have multiple instances for the same browser, make sure to define a custom "name". All projects should have unique names. Make sure your configuration is correct.')
 })
 
 test('throws an error if name conflicts with a workspace name', async () => {
-  const { stderr } = await runVitest({
-    workspace: [
-      { test: { name: '1 (firefox)' } },
-      {
-        test: {
-          browser: {
-            enabled: true,
-            provider: 'playwright',
-            instances: [
-              { browser: 'firefox' },
-            ],
+  const { stderr } = await runVitest({}, {
+    test: {
+      projects: [
+        { test: { name: '1 (firefox)' } },
+        {
+          test: {
+            browser: {
+              enabled: true,
+              provider: 'playwright',
+              instances: [
+                { browser: 'firefox' },
+              ],
+            },
           },
         },
-      },
-    ],
+      ],
+    },
   })
-  expect(stderr).toMatch('Cannot define a nested project for a firefox browser. The project name "1 (firefox)" was already defined. If you have multiple instances for the same browser, make sure to define a custom "name". All projects in a workspace should have unique names. Make sure your configuration is correct.')
+  expect(stderr).toMatch('Cannot define a nested project for a firefox browser. The project name "1 (firefox)" was already defined. If you have multiple instances for the same browser, make sure to define a custom "name". All projects should have unique names. Make sure your configuration is correct.')
 })
 
 test('throws an error if several browsers are headed in nonTTY mode', async () => {
-  const { stderr } = await runVitest({
-    browser: {
-      enabled: true,
-      provider: 'playwright',
-      headless: false,
-      instances: [
-        { browser: 'chromium' },
-        { browser: 'firefox' },
-      ],
+  const { stderr } = await runVitest({}, {
+    test: {
+      browser: {
+        enabled: true,
+        provider: 'playwright',
+        headless: false,
+        instances: [
+          { browser: 'chromium' },
+          { browser: 'firefox' },
+        ],
+      },
     },
   })
   expect(stderr).toContain('Found multiple projects that run browser tests in headed mode: "chromium", "firefox"')
@@ -538,4 +552,24 @@ test('non existing project name will throw', async () => {
 test('non existing project name array will throw', async () => {
   const { stderr } = await runVitest({ project: ['non-existing-project', 'also-non-existing'] })
   expect(stderr).toMatch('No projects matched the filter "non-existing-project", "also-non-existing".')
+})
+
+test('minWorkers must be smaller than maxWorkers', async () => {
+  const { stderr } = await runVitest({ minWorkers: 2, maxWorkers: 1 })
+
+  expect(stderr).toMatch('RangeError: options.minThreads and options.maxThreads must not conflict')
+})
+
+test('minWorkers higher than maxWorkers does not crash', async ({ skip }) => {
+  skip(cpus().length < 2, 'Test requires +2 CPUs')
+
+  const { stdout, stderr } = await runVitest({
+    maxWorkers: 1,
+
+    // Overrides defaults of "runVitest" of "test-utils"
+    minWorkers: undefined,
+  })
+
+  expect(stdout).toMatch('✓ example.test.ts > it works')
+  expect(stderr).toBe('')
 })
