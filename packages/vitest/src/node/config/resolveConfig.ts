@@ -1,6 +1,7 @@
 import type { ResolvedConfig as ResolvedViteConfig } from 'vite'
 import type { Vitest } from '../core'
 import type { BenchmarkBuiltinReporters } from '../reporters'
+import type { ResolvedBrowserOptions } from '../types/browser'
 import type {
   ApiConfig,
   ResolvedConfig,
@@ -13,6 +14,7 @@ import { toArray } from '@vitest/utils'
 import { resolveModule } from 'local-pkg'
 import { normalize, relative, resolve } from 'pathe'
 import c from 'tinyrainbow'
+import { mergeConfig } from 'vite'
 import {
   defaultBrowserPort,
   defaultInspectPort,
@@ -22,7 +24,6 @@ import {
 import { benchmarkConfigDefaults, configDefaults } from '../../defaults'
 import { isCI, stdProvider } from '../../utils/env'
 import { getWorkersCountByPercentage } from '../../utils/workers'
-import { VitestCache } from '../cache'
 import { builtinPools } from '../pool'
 import { BaseSequencer } from '../sequencers/BaseSequencer'
 import { RandomSequencer } from '../sequencers/RandomSequencer'
@@ -145,6 +146,12 @@ export function resolveConfig(
   resolved.project = toArray(resolved.project)
   resolved.provide ??= {}
 
+  resolved.name = typeof options.name === 'string'
+    ? options.name
+    : (options.name?.label || '')
+
+  resolved.color = typeof options.name !== 'string' ? options.name?.color : undefined
+
   const inspector = resolved.inspect || resolved.inspectBrk
 
   resolved.inspector = {
@@ -199,8 +206,6 @@ export function resolveConfig(
     resolved.minWorkers = resolveInlineWorkerOption(resolved.minWorkers)
   }
 
-  resolved.browser ??= {} as any
-
   // run benchmark sequentially by default
   resolved.fileParallelism ??= mode !== 'benchmark'
 
@@ -232,10 +237,23 @@ export function resolveConfig(
     }
   }
 
+  // apply browser CLI options only if the config already has the browser config and not disabled manually
+  if (
+    vitest._cliOptions.browser
+    && resolved.browser
+    // if enabled is set to `false`, but CLI overrides it, then always override it
+    && (resolved.browser.enabled !== false || vitest._cliOptions.browser.enabled)
+  ) {
+    resolved.browser = mergeConfig(
+      resolved.browser,
+      vitest._cliOptions.browser,
+    ) as ResolvedBrowserOptions
+  }
+
+  resolved.browser ??= {} as any
   const browser = resolved.browser
 
-  // if browser was enabled via CLI and it's configured by the user, then validate the input
-  if (browser.enabled && viteConfig.test?.browser) {
+  if (browser.enabled) {
     if (!browser.name && !browser.instances) {
       throw new Error(`Vitest Browser Mode requires "browser.name" (deprecated) or "browser.instances" options, none were set.`)
     }
@@ -439,6 +457,11 @@ export function resolveConfig(
     resolved.runner = resolvePath(resolved.runner, resolved.root)
   }
 
+  resolved.attachmentsDir = resolve(
+    resolved.root,
+    resolved.attachmentsDir ?? '.vitest-attachments',
+  )
+
   if (resolved.snapshotEnvironment) {
     resolved.snapshotEnvironment = resolvePath(
       resolved.snapshotEnvironment,
@@ -573,13 +596,7 @@ export function resolveConfig(
     resolved.pool = resolvePath(resolved.pool, resolved.root)
   }
   if (resolved.poolMatchGlobs) {
-    logger.warn(
-      c.yellow(
-        `${c.inverse(
-          c.yellow(' Vitest '),
-        )} "poolMatchGlobs" is deprecated. Use "workspace" to define different configurations instead.`,
-      ),
-    )
+    logger.deprecate('`poolMatchGlobs` is deprecated. Use `test.projects` to define different configurations instead.')
   }
   resolved.poolMatchGlobs = (resolved.poolMatchGlobs || []).map(
     ([glob, pool]) => {
@@ -635,7 +652,7 @@ export function resolveConfig(
 
   // the server has been created, we don't need to override vite.server options
   const api = resolveApiServerConfig(options, defaultPort)
-  resolved.api = { ...api, token: crypto.randomUUID() }
+  resolved.api = { ...api, token: __VITEST_GENERATE_UI_TOKEN__ ? crypto.randomUUID() : '0' }
 
   if (options.related) {
     resolved.related = toArray(options.related).map(file =>
@@ -726,29 +743,13 @@ export function resolveConfig(
   }
 
   if (resolved.cache !== false) {
-    let cacheDir = VitestCache.resolveCacheDir(
-      '',
-      viteConfig.cacheDir,
-      resolved.name,
-    )
-
-    if (resolved.cache && resolved.cache.dir) {
-      logger.console.warn(
-        c.yellow(
-          `${c.inverse(
-            c.yellow(' Vitest '),
-          )} "cache.dir" is deprecated, use Vite's "cacheDir" instead if you want to change the cache director. Note caches will be written to "cacheDir\/vitest"`,
-        ),
-      )
-
-      cacheDir = VitestCache.resolveCacheDir(
-        resolved.root,
-        resolved.cache.dir,
-        resolved.name,
+    if (resolved.cache && typeof resolved.cache.dir === 'string') {
+      vitest.logger.deprecate(
+        `"cache.dir" is deprecated, use Vite's "cacheDir" instead if you want to change the cache director. Note caches will be written to "cacheDir\/vitest"`,
       )
     }
 
-    resolved.cache = { dir: cacheDir }
+    resolved.cache = { dir: viteConfig.cacheDir }
   }
 
   resolved.sequence ??= {} as any
@@ -766,6 +767,7 @@ export function resolveConfig(
       ? RandomSequencer
       : BaseSequencer
   }
+  resolved.sequence.groupOrder ??= 0
   resolved.sequence.hooks ??= 'stack'
   if (resolved.sequence.sequencer === RandomSequencer) {
     resolved.sequence.seed ??= Date.now()
@@ -777,13 +779,7 @@ export function resolveConfig(
   }
 
   if (resolved.environmentMatchGlobs) {
-    logger.warn(
-      c.yellow(
-        `${c.inverse(
-          c.yellow(' Vitest '),
-        )} "environmentMatchGlobs" is deprecated. Use "workspace" to define different configurations instead.`,
-      ),
-    )
+    logger.deprecate('"environmentMatchGlobs" is deprecated. Use `test.projects` to define different configurations instead.')
   }
   resolved.environmentMatchGlobs = (resolved.environmentMatchGlobs || []).map(
     i => [resolve(resolved.root, i[0]), i[1]],
@@ -800,7 +796,6 @@ export function resolveConfig(
     )
   }
 
-  resolved.browser ??= {} as any
   resolved.browser.enabled ??= false
   resolved.browser.headless ??= isCI
   resolved.browser.isolate ??= true
