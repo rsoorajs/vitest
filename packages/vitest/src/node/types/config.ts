@@ -7,15 +7,16 @@ import type { AliasOptions, ConfigEnv, DepOptimizationConfig, ServerOptions, Use
 import type { ViteNodeServerOptions } from 'vite-node'
 import type { ChaiConfig } from '../../integrations/chai/config'
 import type { SerializedConfig } from '../../runtime/config'
-import type { EnvironmentOptions } from '../../types/environment'
-import type { Arrayable, ErrorWithDiff, ParsedStack, ProvidedContext } from '../../types/general'
+import type { Arrayable, LabelColor, ParsedStack, ProvidedContext, TestError } from '../../types/general'
 import type { HappyDOMOptions } from '../../types/happy-dom-options'
 import type { JSDOMOptions } from '../../types/jsdom-options'
 import type {
   BuiltinReporterOptions,
   BuiltinReporters,
 } from '../reporters'
+import type { TestCase, TestModule, TestSuite } from '../reporters/reported-tasks'
 import type { TestSequencerConstructor } from '../sequencers/types'
+import type { WatcherTriggerPattern } from '../watcher'
 import type { BenchmarkUserOptions } from './benchmark'
 import type { BrowserConfigOptions, ResolvedBrowserOptions } from './browser'
 import type { CoverageOptions, ResolvedCoverageOptions } from './coverage'
@@ -46,9 +47,23 @@ export type ApiConfig = Pick<
   'port' | 'strictPort' | 'host' | 'middlewareMode'
 >
 
-export type { EnvironmentOptions, HappyDOMOptions, JSDOMOptions }
+export interface EnvironmentOptions {
+  /**
+   * jsdom options.
+   */
+  jsdom?: JSDOMOptions
+  happyDOM?: HappyDOMOptions
+  [x: string]: unknown
+}
+
+export type { HappyDOMOptions, JSDOMOptions }
 
 export type VitestRunMode = 'test' | 'benchmark'
+
+export interface ProjectName {
+  label: string
+  color?: LabelColor
+}
 
 interface SequenceOptions {
   /**
@@ -58,6 +73,15 @@ interface SequenceOptions {
    * @default BaseSequencer
    */
   sequencer?: TestSequencerConstructor
+  /**
+   * Controls the order in which this project runs its tests when using multiple [projects](/guide/projects).
+   *
+   * - Projects with the same group order number will run together, and groups are run from lowest to highest.
+   * - If you don’t set this option, all projects run in parallel.
+   * - If several projects use the same group order, they will run at the same time.
+   * @default 0
+   */
+  groupOrder?: number
   /**
    * Should files and tests run in random order.
    * @default false
@@ -238,7 +262,7 @@ export interface InlineConfig {
   /**
    * Name of the project. Will be used to display in the reporter.
    */
-  name?: string
+  name?: string | ProjectName
 
   /**
    * Benchmark options.
@@ -256,7 +280,7 @@ export interface InlineConfig {
 
   /**
    * Exclude globs for test files
-   * @default ['**\/node_modules/**', '**\/dist/**', '**\/cypress/**', '**\/.{idea,git,cache,output,temp}/**', '**\/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*']
+   * @default ['**\/node_modules/**', '**\/.git/**']
    */
   exclude?: string[]
 
@@ -314,7 +338,7 @@ export interface InlineConfig {
    *
    * Format: [glob, environment-name]
    *
-   * @deprecated use [`workspace`](https://vitest.dev/config/#environmentmatchglobs) instead
+   * @deprecated use [`projects`](https://vitest.dev/config/#projects) instead
    * @default []
    * @example [
    *   // all tests in tests/dom will run in jsdom
@@ -371,7 +395,7 @@ export interface InlineConfig {
    *
    * Format: [glob, pool-name]
    *
-   * @deprecated use [`workspace`](https://vitest.dev/config/#poolmatchglobs) instead
+   * @deprecated use [`projects`](https://vitest.dev/config/#projects) instead
    * @default []
    * @example [
    *   // all tests in "forks" directory will run using "poolOptions.forks" API
@@ -383,7 +407,13 @@ export interface InlineConfig {
   poolMatchGlobs?: [string, Exclude<Pool, 'browser'>][]
 
   /**
+   * Options for projects
+   */
+  projects?: TestProjectConfiguration[]
+
+  /**
    * Path to a workspace configuration file
+   * @deprecated use `projects` instead
    */
   workspace?: string | TestProjectConfiguration[]
 
@@ -485,6 +515,12 @@ export interface InlineConfig {
    * @default ['**\/package.json/**', '**\/{vitest,vite}.config.*\/**']
    */
   forceRerunTriggers?: string[]
+
+  /**
+   * Pattern configuration to rerun only the tests that are affected
+   * by the changes of specific files in the repository.
+   */
+  watchTriggerPatterns?: WatcherTriggerPattern[]
 
   /**
    * Coverage options
@@ -626,7 +662,7 @@ export interface InlineConfig {
    *
    * Return `false` to ignore the log.
    */
-  onConsoleLog?: (log: string, type: 'stdout' | 'stderr') => boolean | void
+  onConsoleLog?: (log: string, type: 'stdout' | 'stderr', entity: TestModule | TestCase | TestSuite | undefined) => boolean | void
 
   /**
    * Enable stack trace filtering. If absent, all stack trace frames
@@ -634,7 +670,7 @@ export interface InlineConfig {
    *
    * Return `false` to omit the frame.
    */
-  onStackTrace?: (error: ErrorWithDiff, frame: ParsedStack) => boolean | void
+  onStackTrace?: (error: TestError, frame: ParsedStack) => boolean | void
 
   /**
    * Indicates if CSS files should be processed.
@@ -660,7 +696,7 @@ export interface InlineConfig {
 
   /**
    * Options for configuring cache policy.
-   * @default { dir: 'node_modules/.vite/vitest' }
+   * @default { dir: 'node_modules/.vite/vitest/{project-hash}' }
    */
   cache?:
     | false
@@ -838,6 +874,13 @@ export interface InlineConfig {
    * @default false
    */
   includeTaskLocation?: boolean
+
+  /**
+   * Directory path for storing attachments created by `context.annotate`
+   *
+   * @default '.vitest-attachments'
+   */
+  attachmentsDir?: string
 }
 
 export interface TypecheckConfig {
@@ -880,6 +923,11 @@ export interface TypecheckConfig {
    * Path to tsconfig, relative to the project root.
    */
   tsconfig?: string
+  /**
+   * Minimum time in milliseconds it takes to spawn the typechecker.
+   * @default 10_000
+   */
+  spawnTimeout?: number
 }
 
 export interface UserConfig extends InlineConfig {
@@ -990,9 +1038,12 @@ export interface ResolvedConfig
     | 'setupFiles'
     | 'snapshotEnvironment'
     | 'bail'
+    | 'name'
   > {
   mode: VitestRunMode
 
+  name: ProjectName['label']
+  color?: ProjectName['color']
   base?: string
   diff?: string | SerializedDiffOptions
   bail?: number
@@ -1045,6 +1096,7 @@ export interface ResolvedConfig
     shuffle?: boolean
     concurrent?: boolean
     seed: number
+    groupOrder: number
   }
 
   typecheck: Omit<TypecheckConfig, 'enabled'> & {
@@ -1086,6 +1138,7 @@ type NonProjectOptions =
   | 'minWorkers'
   | 'fileParallelism'
   | 'workspace'
+  | 'watchTriggerPatterns'
 
 export type ProjectConfig = Omit<
   InlineConfig,
@@ -1117,6 +1170,7 @@ export interface UserWorkspaceConfig extends ViteUserConfig {
   test?: ProjectConfig
 }
 
+// TODO: remove types when "workspace" support is removed
 export type UserProjectConfigFn = (
   env: ConfigEnv
 ) => UserWorkspaceConfig | Promise<UserWorkspaceConfig>
@@ -1139,6 +1193,3 @@ export type TestProjectConfiguration =
   | TestProjectInlineConfiguration
   | Promise<UserWorkspaceConfig>
   | UserProjectConfigFn
-
-/** @deprecated use `TestProjectConfiguration` instead */
-export type WorkspaceProjectConfiguration = TestProjectConfiguration
